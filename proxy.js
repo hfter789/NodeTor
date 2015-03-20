@@ -1,23 +1,27 @@
+if (typeof String.prototype.startsWith != 'function') {
+  // see below for better implementation!
+  String.prototype.startsWith = function (str){
+	return this.indexOf(str) === 0;
+  };
+}
+
 var net = require('net') //TCP
 
 var server = net.createServer(function (socket) {
-	socket.on('data', function(data) {
-        
-        data = data.toString();
-        // Write the data back to the socket, the client will receive it as data from the server
-        // socket.write('You said "' + data + '"');
-        var hostIndex = data.search(/host:/i) //search for host in the header (case Insensitive)
-        var hostLineEnd = (data.substring(hostIndex)).search(/\n/) + hostIndex
-        //this line contains host and possibly port
-        var line = data.substring(hostIndex,hostLineEnd)
-        var tokens = line.split(':')
-        if (tokens.length < 2){
-        	console.log('Cannot find host ' + hostIndex + " " + hostLineEnd)
-        }
-        var host = tokens[1].trim()
-        var port = 0
-        // port may appear at host in form www.example.com:port
-        if (tokens.length == 3){
+	socket.once('data', function(data) {
+		data = data.toString();
+		var hostIndex = data.search(/host:/i) //search for host in the header (case Insensitive)
+		var hostLineEnd = (data.substring(hostIndex)).search(/\n/) + hostIndex
+		//this line contains host and possibly port
+		var line = data.substring(hostIndex,hostLineEnd)
+		var tokens = line.split(':')
+		if (tokens.length < 2){
+			console.log('Cannot find host ' + hostIndex + " " + hostLineEnd)
+		}
+		var host = tokens[1].trim()
+		var port = 0
+		// port may appear at host in form www.example.com:port
+		if (tokens.length == 3){
 			port = parseInt(tokens[2])
 		}
 		var firstLine = data.search('\n') //find index of first line
@@ -27,22 +31,63 @@ var server = net.createServer(function (socket) {
 			//the first line need to have CMD URL HTTP/1.x
 			console.log("Illegal firstLine " + firstLine)
 		}
-		command = tokens[0]
-		url = tokens[1]
+		var command = tokens[0]
+		var url = tokens[1]
 		if (port == 0){
-			if(url.search(':') != -1){
+			if(url.search(':') == -1){
 				port = parseInt(url.split(':')[1])
-			}else if(url.startsWith(/https/i) || command.startsWith(/connect/i)){
+			//search(regex) == 0 means starts with.
+			}else if(url.search(/https/i) == 0 || command.search(/connect/i)==0){
 				port = 443
 			}else{
 				port = 80
 			}
 		}
-        data = data.replace('HTTP/1.1','HTTP/1.0')
-        data = data.replace(/keep-alive/ig,'close')
+		data = data.replace('HTTP/1.1','HTTP/1.0')
+		data = data.replace(/keep-alive/ig,'close') //this is the final request
+		connect = false
+		if (command.search(/connect/i) == 0){
+			connect = true
+		}
+		connectServer(host,port,socket,connect,data)
 
-        
-    });
+	});
 });
+
+function connectServer(host,port,clientSocket,connect,data){
+	var serSocket = net.connect(
+			{port:port,host:host},
+			function(){
+				console.log("server connect")
+				if(connect){
+					console.log("Handling HTTPS")
+					clientSocket.write('HTTP/1.1 200 OK\n\n');
+				}else{
+					try{
+						serSocket.write(data)
+					}catch(er){
+						return
+					}
+				}
+				clientSocket.on('data',function(data){
+					console.log("client data")
+					try{
+						serSocket.write(data)
+					}catch(er){
+						return
+					}
+				})
+				console.log('Connected')
+			})
+	serSocket.on('data',function(data){
+		console.log("server data")
+		try{
+			clientSocket.write(data)
+		}catch(er){
+			// client side has closed the connection
+			serSocket.end()
+		}
+	})
+}
 
 server.listen(8888, '127.0.0.1')
