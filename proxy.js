@@ -26,6 +26,7 @@ var server = net.createServer(function (socket) {
 		}
 		var firstLine = data.search('\n') //find index of first line
 		firstLine = data.substring(0,firstLine)
+		console.log(firstLine)
 		tokens = firstLine.split(' ')
 		if (tokens.length < 3){
 			//the first line need to have CMD URL HTTP/1.x
@@ -54,38 +55,48 @@ var server = net.createServer(function (socket) {
 	});
 });
 
+function cleanUp(socket1,socket2){
+	socket1.removeAllListeners()
+	socket1.destroy()
+	socket2.removeAllListeners()
+	socket2.destroy()
+}
+
 function connectServer(host,port,clientSocket,connect,data){
 	var serSocket = net.connect(
 			{port:port,host:host},
 			function(){
-				console.log("server connect")
 				if(connect){
-					console.log("Handling HTTPS")
-					clientSocket.write('HTTP/1.1 200 OK\n\n');
+					try{
+						clientSocket.write('HTTP/1.1 200 OK\n\n');
+					}catch(er){
+						cleanUp(clientSocket,serSocket)
+					}
 				}else{
 					try{
 						serSocket.write(data)
 					}catch(er){
+						cleanUp(clientSocket,serSocket)
 						return
 					}
 				}
 				clientSocket.on('data',function(data){
-					console.log("client data")
 					try{
 						serSocket.write(data)
 					}catch(er){
-						return
+						cleanUp(clientSocket,serSocket)
 					}
 				})
-				console.log('Connected')
 			})
+	serSocket.on('error',function(er){
+		cleanUp(clientSocket,serSocket)
+	})
 	serSocket.on('data',function(data){
-		console.log("server data")
 		try{
 			clientSocket.write(data)
 		}catch(er){
 			// client side has closed the connection
-			serSocket.end()
+			cleanUp(clientSocket,serSocket)
 		}
 	})
 }
